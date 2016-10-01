@@ -27,8 +27,10 @@ import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.Image;
 import android.media.MediaRecorder;
 import android.os.Bundle;
+import android.os.CountDownTimer;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.os.Message;
 import android.support.annotation.NonNull;
 import android.support.design.widget.FloatingActionButton;
 import android.support.v13.app.FragmentCompat;
@@ -47,6 +49,7 @@ import android.widget.ImageButton;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -215,6 +218,18 @@ public class Camera2VideoFragment extends Fragment
 
     private ProgressBar mProgress;
     private ObjectAnimator mAnimatior;
+
+    private CountDownTimer mTimer = new CountDownTimer(VIDEO_DURATION,1000) {
+        @Override
+        public void onTick(long l) {
+
+        }
+
+        @Override
+        public void onFinish() {
+            stopRecordingVideo(false);
+        }
+    };
 
     private void startProgress() {
         if (mProgress != null) {
@@ -586,6 +601,7 @@ public class Camera2VideoFragment extends Fragment
     }
 
     private void startRecordingVideo() {
+        Log.d(TAG,"startRecordingVideo");
         if (null == mCameraDevice || !mTextureView.isAvailable() || null == mPreviewSize) {
             return;
         }
@@ -620,11 +636,14 @@ public class Camera2VideoFragment extends Fragment
                         @Override
                         public void run() {
                             // UI
-//                            mButtonVideo.setText(R.string.stop);
                             mIsRecordingVideo = true;
 
                             // Start recording
                             mMediaRecorder.start();
+                            mTimer.start();
+                            mAnimatior = ObjectAnimator.ofInt(mProgress,"progress",0,100);
+                            mAnimatior.setDuration(VIDEO_DURATION);
+                            mAnimatior.start();
                         }
                     });
                 }
@@ -652,46 +671,51 @@ public class Camera2VideoFragment extends Fragment
         }
     }
 
-    private void stopRecordingVideo() {
+    private void stopRecordingVideo(boolean abort) {
+        Log.d(TAG,"stopRecordingVides abort = " + abort);
         // UI
         mIsRecordingVideo = false;
-//        mButtonVideo.setText(R.string.record);
+
         // Stop recording
         mMediaRecorder.stop();
         mMediaRecorder.reset();
 
-        Activity activity = getActivity();
-        if (null != activity) {
-            Toast.makeText(activity, "Video saved: " + mNextVideoAbsolutePath,
-                    Toast.LENGTH_SHORT).show();
-            Log.d(TAG, "Video saved: " + mNextVideoAbsolutePath);
+
+        if(mAnimatior != null)
+            mAnimatior.cancel();
+
+        if(abort){
+            try {
+                File f = new File(mNextVideoAbsolutePath);
+                f.delete();
+            } catch (Exception e){
+                Log.e(TAG," file error!");
+            }
+            mProgress.setProgress(0);
+        }else {
+            Activity activity = getActivity();
+            if (null != activity) {
+                Toast.makeText(activity, "Video saved: " + mNextVideoAbsolutePath,
+                        Toast.LENGTH_SHORT).show();
+                Log.d(TAG, "Video saved: " + mNextVideoAbsolutePath);
+            }
         }
+
         mNextVideoAbsolutePath = null;
         startPreview();
     }
 
     @Override
     public boolean onTouch(View view, MotionEvent motionEvent) {
-        Log.d(TAG,"onTouch action = " + motionEvent.getAction());
         switch(motionEvent.getAction()) {
             case MotionEvent.ACTION_DOWN:
                 // PRESSED
-                mAnimatior = ObjectAnimator.ofInt(mProgress,"progress",0,100);
-                mAnimatior.setDuration(VIDEO_DURATION);
-                mAnimatior.start();
-//                startProgress();
-//                if (mIsRecordingVideo) {
-//                    stopRecordingVideo();
-//                } else {
-//                    startRecordingVideo();
-//                }
-
+                startRecordingVideo();
                 return true; // if you want to handle the touch event
             case MotionEvent.ACTION_UP:
                 // RELEASED
-                if(mAnimatior != null)
-                    mAnimatior.cancel();
-                mProgress.setProgress(0);
+                if(mIsRecordingVideo)
+                    stopRecordingVideo(true);
                 return true; // if you want to handle the touch event
         }
 
