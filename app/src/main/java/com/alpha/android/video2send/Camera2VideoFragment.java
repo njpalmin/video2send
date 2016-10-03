@@ -2,7 +2,10 @@
 package com.alpha.android.video2send;
 
 import android.Manifest;
+import android.animation.Animator;
+import android.animation.AnimatorSet;
 import android.animation.ObjectAnimator;
+import android.animation.PropertyValuesHolder;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
@@ -43,7 +46,12 @@ import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
+import android.view.ViewAnimationUtils;
 import android.view.ViewGroup;
+import android.view.animation.AccelerateDecelerateInterpolator;
+import android.view.animation.Animation;
+import android.view.animation.AnimationSet;
+import android.view.animation.AnimationUtils;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ProgressBar;
@@ -60,7 +68,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 public class Camera2VideoFragment extends Fragment
-        implements View.OnTouchListener, FragmentCompat.OnRequestPermissionsResultCallback {
+        implements View.OnClickListener, FragmentCompat.OnRequestPermissionsResultCallback {
 
     private static final int SENSOR_ORIENTATION_DEFAULT_DEGREES = 90;
     private static final int SENSOR_ORIENTATION_INVERSE_DEGREES = 270;
@@ -70,7 +78,7 @@ public class Camera2VideoFragment extends Fragment
     private static final String TAG = "Camera2VideoFragment";
     private static final int REQUEST_VIDEO_PERMISSIONS = 1;
     private static final String FRAGMENT_DIALOG = "dialog";
-    private static final int VIDEO_DURATION = 10 * 1000; // 10s
+    private static final int VIDEO_DURATION = 5 * 1000; // 10s
 
     private static final String[] VIDEO_PERMISSIONS = {
             Manifest.permission.CAMERA,
@@ -100,6 +108,11 @@ public class Camera2VideoFragment extends Fragment
      * Button to record video
      */
     private FloatingActionButton mButtonVideo;
+    private ImageButton mClear;
+    private ImageButton mReset;
+
+    private View mControl;
+    private View mBgView;
 
     /**
      * A refernce to the opened {@link android.hardware.camera2.CameraDevice}.
@@ -227,7 +240,8 @@ public class Camera2VideoFragment extends Fragment
 
         @Override
         public void onFinish() {
-            stopRecordingVideo(false);
+            if(mIsRecordingVideo)
+                stopRecordingVideo(false);
         }
     };
 
@@ -302,14 +316,20 @@ public class Camera2VideoFragment extends Fragment
     public void onViewCreated(final View view, Bundle savedInstanceState) {
         mTextureView = (AutoFitTextureView) view.findViewById(R.id.texture);
         mButtonVideo = (FloatingActionButton) view.findViewById(R.id.video);
-        mButtonVideo.setOnTouchListener(this);
+        mClear = (ImageButton)view.findViewById(R.id.clear);
+        mReset = (ImageButton)view.findViewById(R.id.reset);
+        mButtonVideo.setOnClickListener(this);
+        mClear.setOnClickListener(this);
+        mReset.setOnClickListener(this);
         mProgress = (ProgressBar)view.findViewById(R.id.progressBar);
-
+        mControl = view.findViewById(R.id.control);
+        mBgView = view.findViewById(R.id.background);
     }
 
     @Override
     public void onResume() {
         super.onResume();
+
         startBackgroundThread();
         if (mTextureView.isAvailable()) {
             openCamera(mTextureView.getWidth(), mTextureView.getHeight());
@@ -692,6 +712,8 @@ public class Camera2VideoFragment extends Fragment
                 Log.e(TAG," file error!");
             }
             mProgress.setProgress(0);
+            mNextVideoAbsolutePath = null;
+            return;
         }else {
             Activity activity = getActivity();
             if (null != activity) {
@@ -702,25 +724,67 @@ public class Camera2VideoFragment extends Fragment
         }
 
         mNextVideoAbsolutePath = null;
-        startPreview();
+
+        mProgress.setVisibility(View.INVISIBLE);
+        mControl.setVisibility(View.INVISIBLE);
+
+        int[] location = new int[2];
+        mButtonVideo.getLocationOnScreen(location);
+        Animator circleAnim =
+                ViewAnimationUtils.createCircularReveal(mBgView,
+                        location[0], location[1],
+                        0, 1600);
+        circleAnim.setDuration(500);
+        circleAnim.setInterpolator(new AccelerateDecelerateInterpolator());
+        circleAnim.addListener(new Animator.AnimatorListener() {
+            @Override
+            public void onAnimationStart(Animator animator) {
+            }
+
+            @Override
+            public void onAnimationEnd(Animator animator) {
+                mBgView.setVisibility(View.VISIBLE);
+            }
+
+            @Override
+            public void onAnimationCancel(Animator animator) {
+            }
+
+            @Override
+            public void onAnimationRepeat(Animator animator) {
+            }
+        });
+        circleAnim.start();
+
+        ObjectAnimator scaleAnim = ObjectAnimator.ofPropertyValuesHolder(mTextureView,
+                PropertyValuesHolder.ofFloat("scaleX", 0.8f),
+                PropertyValuesHolder.ofFloat("scaleY", 0.8f));
+        scaleAnim.setDuration(800);
+        scaleAnim.start();
+
+//        AnimatorSet as = new AnimatorSet();
+//        as.play(scaleAnim).with(circleAnim);
+//        as.start();
+
+        //startPreview();
     }
 
     @Override
-    public boolean onTouch(View view, MotionEvent motionEvent) {
-        switch(motionEvent.getAction()) {
-            case MotionEvent.ACTION_DOWN:
-                // PRESSED
-                startRecordingVideo();
-                return true; // if you want to handle the touch event
-            case MotionEvent.ACTION_UP:
-                // RELEASED
-                if(mIsRecordingVideo)
+    public void onClick(View view) {
+        switch(view.getId()){
+            case R.id.video:
+                if(!mIsRecordingVideo)
+                    startRecordingVideo();
+            break;
+            case R.id.clear:
+                getActivity().finish();
+            break;
+            case R.id.reset:
+                if(mIsRecordingVideo){
                     stopRecordingVideo(true);
-                return true; // if you want to handle the touch event
+                }
+            break;
         }
-
-        return false;
-
     }
 
     /**
