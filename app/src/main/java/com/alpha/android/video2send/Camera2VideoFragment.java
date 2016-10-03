@@ -38,6 +38,7 @@ import android.support.annotation.NonNull;
 import android.support.design.widget.FloatingActionButton;
 import android.support.v13.app.FragmentCompat;
 import android.support.v4.app.ActivityCompat;
+import android.support.v7.widget.ContentFrameLayout;
 import android.util.Log;
 import android.util.Size;
 import android.util.SparseIntArray;
@@ -54,6 +55,7 @@ import android.view.animation.AnimationSet;
 import android.view.animation.AnimationUtils;
 import android.widget.Button;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
@@ -110,9 +112,13 @@ public class Camera2VideoFragment extends Fragment
     private FloatingActionButton mButtonVideo;
     private ImageButton mClear;
     private ImageButton mReset;
+    private FloatingActionButton mConfirm;
+    private ImageButton mClose;
 
     private View mControl;
     private View mBgView;
+    private ContentFrameLayout mTextureContainer;
+
 
     /**
      * A refernce to the opened {@link android.hardware.camera2.CameraDevice}.
@@ -315,15 +321,23 @@ public class Camera2VideoFragment extends Fragment
     @Override
     public void onViewCreated(final View view, Bundle savedInstanceState) {
         mTextureView = (AutoFitTextureView) view.findViewById(R.id.texture);
+//        mTextureContainer = (ContentFrameLayout)view.findViewById(R.id.texture_container);
         mButtonVideo = (FloatingActionButton) view.findViewById(R.id.video);
         mClear = (ImageButton)view.findViewById(R.id.clear);
         mReset = (ImageButton)view.findViewById(R.id.reset);
+        mClose = (ImageButton)view.findViewById(R.id.close);
+        mClose.setOnClickListener(this);
         mButtonVideo.setOnClickListener(this);
         mClear.setOnClickListener(this);
         mReset.setOnClickListener(this);
+
         mProgress = (ProgressBar)view.findViewById(R.id.progressBar);
         mControl = view.findViewById(R.id.control);
         mBgView = view.findViewById(R.id.background);
+
+        mConfirm = (FloatingActionButton)view.findViewById(R.id.confirm);
+        mConfirm.setOnClickListener(this);
+
     }
 
     @Override
@@ -621,7 +635,6 @@ public class Camera2VideoFragment extends Fragment
     }
 
     private void startRecordingVideo() {
-        Log.d(TAG,"startRecordingVideo");
         if (null == mCameraDevice || !mTextureView.isAvailable() || null == mPreviewSize) {
             return;
         }
@@ -762,6 +775,9 @@ public class Camera2VideoFragment extends Fragment
         scaleAnim.setDuration(800);
         scaleAnim.start();
 
+        mConfirm.setVisibility(View.VISIBLE);
+        mClose.setVisibility(View.VISIBLE);
+
 //        AnimatorSet as = new AnimatorSet();
 //        as.play(scaleAnim).with(circleAnim);
 //        as.start();
@@ -784,6 +800,12 @@ public class Camera2VideoFragment extends Fragment
                     stopRecordingVideo(true);
                 }
             break;
+            case R.id.confirm:
+                Animation rotate = AnimationUtils.loadAnimation(getActivity(), R.anim.rotate);
+                mConfirm.startAnimation(rotate);
+                mConfirm.setImageResource(R.drawable.confirm);
+            break;
+
         }
     }
 

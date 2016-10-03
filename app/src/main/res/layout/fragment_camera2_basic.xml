@@ -22,13 +22,31 @@
         android:id="@+id/background"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@android:color/holo_red_dark" />
+        android:background="@android:color/holo_red_light" />
 
-    <com.alpha.android.video2send.AutoFitTextureView
-        android:id="@+id/texture"
-        android:layout_width="match_parent"
+    <ImageButton
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignParentTop="true"/>
+        android:layout_alignParentStart="true"
+        android:layout_margin="15dp"
+        android:id="@+id/close"
+        android:background="@drawable/ic_clear_black_24dp"
+        android:visibility="invisible"/>
+
+
+    <!--<android.support.v7.widget.ContentFrameLayout-->
+        <!--android:id="@+id/texture_container"-->
+        <!--android:layout_width="wrap_content"-->
+        <!--android:layout_height="wrap_content"-->
+        <!--android:layout_alignParentTop="true"-->
+        <!--android:background="@android:drawable/dialog_holo_light_frame"/>-->
+        <com.alpha.android.video2send.AutoFitTextureView
+            android:id="@+id/texture"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:elevation="5dp"
+            android:layout_alignParentTop="true"/>
+
 
     <ProgressBar
         style="@android:style/Widget.Material.Light.ProgressBar.Horizontal"
@@ -72,5 +90,16 @@
             android:background="@drawable/ic_restore_black_24dp"
             android:layout_alignParentRight="true"/>
     </RelativeLayout>
+
+    <android.support.design.widget.FloatingActionButton
+        android:id="@+id/confirm"
+        android:layout_centerHorizontal="true"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_below="@+id/progressBar"
+        android:layout_marginBottom="16dp"
+        android:visibility="invisible"
+        android:background="@android:drawable/ic_menu_send"
+        android:backgroundTint="@android:color/holo_blue_light" />
 
 </RelativeLayout>
