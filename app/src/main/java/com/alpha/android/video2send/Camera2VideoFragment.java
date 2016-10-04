@@ -112,7 +112,7 @@ public class Camera2VideoFragment extends Fragment
     private FloatingActionButton mButtonVideo;
     private ImageButton mClear;
     private ImageButton mReset;
-    private FloatingActionButton mConfirm;
+    private ImageView mConfirm;
     private ImageButton mClose;
 
     private View mControl;
@@ -335,7 +335,7 @@ public class Camera2VideoFragment extends Fragment
         mControl = view.findViewById(R.id.control);
         mBgView = view.findViewById(R.id.background);
 
-        mConfirm = (FloatingActionButton)view.findViewById(R.id.confirm);
+        mConfirm = (ImageView) view.findViewById(R.id.confirm);
         mConfirm.setOnClickListener(this);
 
     }
@@ -803,7 +803,7 @@ public class Camera2VideoFragment extends Fragment
             case R.id.confirm:
                 Animation rotate = AnimationUtils.loadAnimation(getActivity(), R.anim.rotate);
                 mConfirm.startAnimation(rotate);
-                mConfirm.setImageResource(R.drawable.confirm);
+                mConfirm.setImageResource(R.drawable.ic_send_white_48dp);
             break;
 
         }
