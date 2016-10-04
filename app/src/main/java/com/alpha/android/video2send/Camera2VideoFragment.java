@@ -11,6 +11,8 @@ import android.app.AlertDialog;
 import android.app.Dialog;
 import android.app.DialogFragment;
 import android.app.Fragment;
+import android.app.FragmentManager;
+import android.app.FragmentTransaction;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.pm.PackageManager;
@@ -112,12 +114,13 @@ public class Camera2VideoFragment extends Fragment
     private FloatingActionButton mButtonVideo;
     private ImageButton mClear;
     private ImageButton mReset;
-    private ImageView mConfirm;
+    private FloatingActionButton mConfirm;
     private ImageButton mClose;
 
     private View mControl;
     private View mBgView;
     private ContentFrameLayout mTextureContainer;
+    private boolean mIsReady2Send;
 
 
     /**
@@ -251,14 +254,6 @@ public class Camera2VideoFragment extends Fragment
         }
     };
 
-    private void startProgress() {
-        if (mProgress != null) {
-            ObjectAnimator animator = ObjectAnimator.ofInt(mProgress, "progress", 0, 100);
-            animator.setDuration(VIDEO_DURATION);
-            animator.start();
-        }
-    }
-
     public static Camera2VideoFragment newInstance() {
         return new Camera2VideoFragment();
     }
@@ -335,7 +330,7 @@ public class Camera2VideoFragment extends Fragment
         mControl = view.findViewById(R.id.control);
         mBgView = view.findViewById(R.id.background);
 
-        mConfirm = (ImageView) view.findViewById(R.id.confirm);
+        mConfirm = (FloatingActionButton) view.findViewById(R.id.confirm);
         mConfirm.setOnClickListener(this);
 
     }
@@ -727,13 +722,13 @@ public class Camera2VideoFragment extends Fragment
             mProgress.setProgress(0);
             mNextVideoAbsolutePath = null;
             return;
-        }else {
-            Activity activity = getActivity();
-            if (null != activity) {
-                Toast.makeText(activity, "Video saved: " + mNextVideoAbsolutePath,
-                        Toast.LENGTH_SHORT).show();
-                Log.d(TAG, "Video saved: " + mNextVideoAbsolutePath);
-            }
+//        }else {
+//            Activity activity = getActivity();
+//            if (null != activity) {
+//                Toast.makeText(activity, "Video saved: " + mNextVideoAbsolutePath,
+//                        Toast.LENGTH_SHORT).show();
+//                Log.d(TAG, "Video saved: " + mNextVideoAbsolutePath);
+//            }
         }
 
         mNextVideoAbsolutePath = null;
@@ -772,7 +767,7 @@ public class Camera2VideoFragment extends Fragment
         ObjectAnimator scaleAnim = ObjectAnimator.ofPropertyValuesHolder(mTextureView,
                 PropertyValuesHolder.ofFloat("scaleX", 0.8f),
                 PropertyValuesHolder.ofFloat("scaleY", 0.8f));
-        scaleAnim.setDuration(800);
+        scaleAnim.setDuration(300);
         scaleAnim.start();
 
         mConfirm.setVisibility(View.VISIBLE);
@@ -801,10 +796,27 @@ public class Camera2VideoFragment extends Fragment
                 }
             break;
             case R.id.confirm:
-                Animation rotate = AnimationUtils.loadAnimation(getActivity(), R.anim.rotate);
-                mConfirm.startAnimation(rotate);
-                mConfirm.setImageResource(R.drawable.ic_send_white_48dp);
+                if(!mIsReady2Send) {
+                    Animation rotate = AnimationUtils.loadAnimation(getActivity(), R.anim.rotate);
+                    mConfirm.startAnimation(rotate);
+                    mConfirm.setImageResource(R.drawable.ic_send_white_48dp);
+                    mIsReady2Send = true;
+                }else {
+                    // FIX ME ready to send;
+                }
             break;
+            case R.id.close:
+                Log.d(TAG,"close");
+                FragmentManager manager = getActivity().getFragmentManager();
+                FragmentTransaction ft = manager.beginTransaction();
+                Fragment newFragment = this;
+                this.onDestroy();
+                ft.remove(this);
+                ft.replace(R.id.container,newFragment);
+                //container is the ViewGroup of current fragment
+                ft.addToBackStack(null);
+                ft.commit();
+                break;
 
         }
     }
