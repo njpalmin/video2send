@@ -250,6 +250,7 @@ public class Camera2VideoFragment extends Fragment
 
     private ProgressBar mProgress;
     private ObjectAnimator mAnimatior;
+    private boolean mTimeUp;
 
     private CountDownTimer mTimer = new CountDownTimer(VIDEO_DURATION,1000) {
         @Override
@@ -261,6 +262,7 @@ public class Camera2VideoFragment extends Fragment
         public void onFinish() {
             if(mIsRecordingVideo)
                 stopRecordingVideo(false);
+            mTimeUp = true;
         }
     };
 
@@ -328,11 +330,33 @@ public class Camera2VideoFragment extends Fragment
         mTextureView = (AutoFitTextureView) view.findViewById(R.id.texture);
 //        mTextureContainer = (ContentFrameLayout)view.findViewById(R.id.texture_container);
         mButtonVideo = (FloatingActionButton) view.findViewById(R.id.video);
+        mButtonVideo.setOnClickListener(this);
+        mButtonVideo.setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View view, MotionEvent motionEvent) {
+                if(motionEvent.getAction() == MotionEvent.ACTION_DOWN){
+                    if(!mIsRecordingVideo)
+                        startRecordingVideo();
+                }else if(motionEvent.getAction() == MotionEvent.ACTION_UP){
+                    if(!mIsRecordingVideo)
+                        return false;
+
+                    if(mTimeUp){
+                        stopRecordingVideo(false);
+                    }else {
+                        stopRecordingVideo(true);
+                    }
+                }
+                return false;
+            }
+        });
+
         mClear = (ImageButton)view.findViewById(R.id.clear);
         mReset = (ImageButton)view.findViewById(R.id.reset);
         mClose = (ImageButton)view.findViewById(R.id.close);
         mClose.setOnClickListener(this);
-        mButtonVideo.setOnClickListener(this);
+
+
         mClear.setOnClickListener(this);
         mReset.setOnClickListener(this);
 
@@ -358,7 +382,6 @@ public class Camera2VideoFragment extends Fragment
 
             @Override
             public void onAnimationEnd(Animator animator) {
-//                mBgView.setVisibility(View.VISIBLE);
                 mConfirm.setVisibility(View.VISIBLE);
                 mClose.setVisibility(View.VISIBLE);
             }
@@ -388,6 +411,7 @@ public class Camera2VideoFragment extends Fragment
                 mCircleAnimator.addListener(new Animator.AnimatorListener() {
                     @Override
                     public void onAnimationStart(Animator animator) {
+                        mBgView.setBackgroundColor(getResources().getColor(R.color.control_background));
                     }
 
                     @Override
@@ -741,6 +765,7 @@ public class Camera2VideoFragment extends Fragment
                             // Start recording
                             mMediaRecorder.start();
                             mTimer.start();
+                            mTimeUp = false;
                             mAnimatior = ObjectAnimator.ofInt(mProgress,"progress",0,100);
                             mAnimatior.setDuration(VIDEO_DURATION);
                             mAnimatior.start();
@@ -812,8 +837,9 @@ public class Camera2VideoFragment extends Fragment
     public void onClick(View view) {
         switch(view.getId()){
             case R.id.video:
-                if(!mIsRecordingVideo)
-                    startRecordingVideo();
+//                if(!mIsRecordingVideo)
+//                    startRecordingVideo();
+                Log.d(TAG," click!!!");
             break;
             case R.id.clear:
                 if(mCircleAnimator != null && mCircleAnimator.isRunning())
