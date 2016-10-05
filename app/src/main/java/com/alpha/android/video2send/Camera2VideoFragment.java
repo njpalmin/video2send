@@ -326,7 +326,7 @@ public class Camera2VideoFragment extends Fragment
     @Override
     public void onViewCreated(final View view, Bundle savedInstanceState) {
         mTextureView = (AutoFitTextureView) view.findViewById(R.id.texture);
-//        mTextureContainer = (ContentFrameLayout)view.findViewById(R.id.texture_container);
+        mTextureContainer = (ContentFrameLayout)view.findViewById(R.id.texture_container);
         mButtonVideo = (FloatingActionButton) view.findViewById(R.id.video);
         mClear = (ImageButton)view.findViewById(R.id.clear);
         mReset = (ImageButton)view.findViewById(R.id.reset);
@@ -346,7 +346,7 @@ public class Camera2VideoFragment extends Fragment
         //animation
         PropertyValuesHolder preX = PropertyValuesHolder.ofFloat("scaleX", PRE_FINISHRECORDING_SCALE);
         PropertyValuesHolder preY = PropertyValuesHolder.ofFloat("scaleY", PRE_FINISHRECORDING_SCALE);
-        mPreAnimator = ObjectAnimator.ofPropertyValuesHolder(mTextureView, preX, preY);
+        mPreAnimator = ObjectAnimator.ofPropertyValuesHolder(mTextureContainer, preX, preY);
         mPreAnimator.setInterpolator(new DecelerateInterpolator());
         mPreAnimator.setDuration(PRE_DURATION_MS);
         mPreAnimator.addListener(new Animator.AnimatorListener(){
