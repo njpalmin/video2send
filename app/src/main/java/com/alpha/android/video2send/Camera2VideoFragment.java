@@ -55,6 +55,7 @@ import android.view.animation.AccelerateDecelerateInterpolator;
 import android.view.animation.Animation;
 import android.view.animation.AnimationSet;
 import android.view.animation.AnimationUtils;
+import android.view.animation.DecelerateInterpolator;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -83,6 +84,12 @@ public class Camera2VideoFragment extends Fragment
     private static final int REQUEST_VIDEO_PERMISSIONS = 1;
     private static final String FRAGMENT_DIALOG = "dialog";
     private static final int VIDEO_DURATION = 5 * 1000; // 10s
+
+
+    static final float INTERMEDIATE_SCALE = 0.75f;
+    static final float[] PRE_FINISHRECORDING_SCALE = {1.0f, INTERMEDIATE_SCALE};
+    static final int PRE_DURATION_MS = 350;
+
 
     private static final String[] VIDEO_PERMISSIONS = {
             Manifest.permission.CAMERA,
@@ -121,6 +128,9 @@ public class Camera2VideoFragment extends Fragment
     private View mBgView;
     private ContentFrameLayout mTextureContainer;
     private boolean mIsReady2Send;
+
+    private ObjectAnimator mPreAnimator;
+    private Animator mCircleAnimator;
 
 
     /**
@@ -333,6 +343,68 @@ public class Camera2VideoFragment extends Fragment
         mConfirm = (FloatingActionButton) view.findViewById(R.id.confirm);
         mConfirm.setOnClickListener(this);
 
+        //animation
+        PropertyValuesHolder preX = PropertyValuesHolder.ofFloat("scaleX", PRE_FINISHRECORDING_SCALE);
+        PropertyValuesHolder preY = PropertyValuesHolder.ofFloat("scaleY", PRE_FINISHRECORDING_SCALE);
+        mPreAnimator = ObjectAnimator.ofPropertyValuesHolder(mTextureView, preX, preY);
+        mPreAnimator.setInterpolator(new DecelerateInterpolator());
+        mPreAnimator.setDuration(PRE_DURATION_MS);
+        mPreAnimator.addListener(new Animator.AnimatorListener(){
+
+            @Override
+            public void onAnimationStart(Animator animator) {
+
+            }
+
+            @Override
+            public void onAnimationEnd(Animator animator) {
+//                mBgView.setVisibility(View.VISIBLE);
+                mConfirm.setVisibility(View.VISIBLE);
+                mClose.setVisibility(View.VISIBLE);
+            }
+
+            @Override
+            public void onAnimationCancel(Animator animator) {
+
+            }
+
+            @Override
+            public void onAnimationRepeat(Animator animator) {
+
+            }
+        });
+
+        view.addOnLayoutChangeListener(new View.OnLayoutChangeListener(){
+
+            @Override
+            public void onLayoutChange(View view, int i, int i1, int i2, int i3, int i4, int i5, int i6, int i7) {
+                view.removeOnLayoutChangeListener(this);
+                int[] location = new int[2];
+                mButtonVideo.getLocationOnScreen(location);
+                mCircleAnimator = ViewAnimationUtils.createCircularReveal(mBgView,
+                        location[0], location[1], 0, 1600);
+                mCircleAnimator.setDuration(PRE_DURATION_MS);
+                mCircleAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
+                mCircleAnimator.addListener(new Animator.AnimatorListener() {
+                    @Override
+                    public void onAnimationStart(Animator animator) {
+                    }
+
+                    @Override
+                    public void onAnimationEnd(Animator animator) {
+                        mBgView.setVisibility(View.VISIBLE);
+                    }
+
+                    @Override
+                    public void onAnimationCancel(Animator animator) {
+                    }
+
+                    @Override
+                    public void onAnimationRepeat(Animator animator) {
+                    }
+                });
+            }
+        });
     }
 
     @Override
@@ -700,13 +772,12 @@ public class Camera2VideoFragment extends Fragment
     }
 
     private void stopRecordingVideo(boolean abort) {
-        Log.d(TAG,"stopRecordingVides abort = " + abort);
         // UI
         mIsRecordingVideo = false;
 
         // Stop recording
-        mMediaRecorder.stop();
-        mMediaRecorder.reset();
+//        mMediaRecorder.stop();
+//        mMediaRecorder.reset();
 
 
         if(mAnimatior != null)
@@ -721,14 +792,9 @@ public class Camera2VideoFragment extends Fragment
             }
             mProgress.setProgress(0);
             mNextVideoAbsolutePath = null;
+            closeCamera();
+            openCamera(mTextureView.getWidth(), mTextureView.getHeight());
             return;
-//        }else {
-//            Activity activity = getActivity();
-//            if (null != activity) {
-//                Toast.makeText(activity, "Video saved: " + mNextVideoAbsolutePath,
-//                        Toast.LENGTH_SHORT).show();
-//                Log.d(TAG, "Video saved: " + mNextVideoAbsolutePath);
-//            }
         }
 
         mNextVideoAbsolutePath = null;
@@ -736,48 +802,10 @@ public class Camera2VideoFragment extends Fragment
         mProgress.setVisibility(View.INVISIBLE);
         mControl.setVisibility(View.INVISIBLE);
 
-        int[] location = new int[2];
-        mButtonVideo.getLocationOnScreen(location);
-        Animator circleAnim =
-                ViewAnimationUtils.createCircularReveal(mBgView,
-                        location[0], location[1],
-                        0, 1600);
-        circleAnim.setDuration(500);
-        circleAnim.setInterpolator(new AccelerateDecelerateInterpolator());
-        circleAnim.addListener(new Animator.AnimatorListener() {
-            @Override
-            public void onAnimationStart(Animator animator) {
-            }
+        mCircleAnimator.start();
+        mPreAnimator.start();
 
-            @Override
-            public void onAnimationEnd(Animator animator) {
-                mBgView.setVisibility(View.VISIBLE);
-            }
-
-            @Override
-            public void onAnimationCancel(Animator animator) {
-            }
-
-            @Override
-            public void onAnimationRepeat(Animator animator) {
-            }
-        });
-        circleAnim.start();
-
-        ObjectAnimator scaleAnim = ObjectAnimator.ofPropertyValuesHolder(mTextureView,
-                PropertyValuesHolder.ofFloat("scaleX", 0.8f),
-                PropertyValuesHolder.ofFloat("scaleY", 0.8f));
-        scaleAnim.setDuration(300);
-        scaleAnim.start();
-
-        mConfirm.setVisibility(View.VISIBLE);
-        mClose.setVisibility(View.VISIBLE);
-
-//        AnimatorSet as = new AnimatorSet();
-//        as.play(scaleAnim).with(circleAnim);
-//        as.start();
-
-        //startPreview();
+        closeCamera();
     }
 
     @Override
@@ -788,6 +816,14 @@ public class Camera2VideoFragment extends Fragment
                     startRecordingVideo();
             break;
             case R.id.clear:
+                if(mCircleAnimator != null && mCircleAnimator.isRunning())
+                    mCircleAnimator.cancel();
+                if(mPreAnimator != null && mPreAnimator.isRunning())
+                    mPreAnimator.cancel();
+                if(mAnimatior != null && mAnimatior.isRunning())
+                    mAnimatior.cancel();
+                mTimer.cancel();
+                closeCamera();
                 getActivity().finish();
             break;
             case R.id.reset:
@@ -809,10 +845,9 @@ public class Camera2VideoFragment extends Fragment
                 Log.d(TAG,"close");
                 FragmentManager manager = getActivity().getFragmentManager();
                 FragmentTransaction ft = manager.beginTransaction();
-                Fragment newFragment = this;
                 this.onDestroy();
                 ft.remove(this);
-                ft.replace(R.id.container,newFragment);
+                ft.replace(R.id.container,this);
                 //container is the ViewGroup of current fragment
                 ft.addToBackStack(null);
                 ft.commit();

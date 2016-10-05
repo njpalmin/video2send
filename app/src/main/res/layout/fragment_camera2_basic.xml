@@ -99,7 +99,7 @@
         android:layout_below="@+id/progressBar"
         android:layout_marginBottom="16dp"
         android:visibility="invisible"
-        android:backgroundTint="@android:color/holo_blue_light"
+        app:backgroundTint="@android:color/holo_blue_light"
         app:fabSize="mini"
         android:src="@drawable/ic_done_white_48dp"
         />
