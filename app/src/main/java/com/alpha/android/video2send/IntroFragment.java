@@ -66,6 +66,6 @@ public class IntroFragment extends Fragment {
         ft.replace(R.id.container, Camera2VideoFragment.newInstance());
         //container is the ViewGroup of current fragment
         ft.addToBackStack(null);
-        ft.commit();
+        ft.commitAllowingStateLoss();
     }
 }
