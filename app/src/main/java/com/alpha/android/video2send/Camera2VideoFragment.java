@@ -31,6 +31,7 @@ import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.params.StreamConfigurationMap;
+import android.media.CamcorderProfile;
 import android.media.Image;
 import android.media.ImageReader;
 import android.media.MediaRecorder;
@@ -69,6 +70,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -84,7 +86,7 @@ public class Camera2VideoFragment extends Fragment
     private static final String TAG = "Camera2VideoFragment";
     private static final int REQUEST_VIDEO_PERMISSIONS = 1;
     private static final String FRAGMENT_DIALOG = "dialog";
-    private static final int VIDEO_DURATION = 5 * 1000; // 10s
+    private static final int VIDEO_DURATION = 10 * 1000; // 10s
     private static final int FACING_CAMERA = 1;
     private static final int BACK_CAMERA = 0;
 
@@ -191,6 +193,7 @@ public class Camera2VideoFragment extends Fragment
         }
     };
 
+    private LinkedList<String> mVideoQueue;
 
     private TextureView.SurfaceTextureListener mSurfaceTextureListener
             = new TextureView.SurfaceTextureListener() {
@@ -339,6 +342,7 @@ public class Camera2VideoFragment extends Fragment
     public void onActivityCreated(Bundle savedInstanceState) {
         super.onActivityCreated(savedInstanceState);
         mImageFile = new File(getImageFilePath(getActivity()));
+        mVideoQueue = new LinkedList<String>();
     }
 
     @Override
@@ -349,7 +353,6 @@ public class Camera2VideoFragment extends Fragment
 
     @Override
     public void onViewCreated(final View view, Bundle savedInstanceState) {
-        Log.d(TAG,"onViewCreated");
         initCameras();
         mTextureView = (AutoFitTextureView) view.findViewById(R.id.texture);
 //        mTextureContainer = (ContentFrameLayout)view.findViewById(R.id.texture_container);
@@ -477,6 +480,10 @@ public class Camera2VideoFragment extends Fragment
             openCamera(mTextureView.getWidth(), mTextureView.getHeight(),mCurrentCameraId);
         } else {
             mTextureView.setSurfaceTextureListener(mSurfaceTextureListener);
+        }
+
+        if(mVideoQueue.size() != 0){
+            mBackgroundHandler.post(new VideoUpload(mVideoQueue.getFirst()));
         }
     }
 
@@ -728,7 +735,7 @@ public class Camera2VideoFragment extends Fragment
         mMediaRecorder.setOutputFile(mNextVideoAbsolutePath);
         mMediaRecorder.setVideoEncodingBitRate(10000000);
         mMediaRecorder.setVideoFrameRate(30);
-//        mMediaRecorder.setVideoSize(mVideoSize.getWidth(), mVideoSize.getHeight());
+        mMediaRecorder.setVideoSize(mVideoSize.getWidth(), mVideoSize.getHeight());
         mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
         mMediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
         int rotation = activity.getWindowManager().getDefaultDisplay().getRotation();
@@ -839,7 +846,10 @@ public class Camera2VideoFragment extends Fragment
 
         showToast(mNextVideoAbsolutePath);
 
-
+        synchronized (mVideoQueue){
+            mVideoQueue.add(mNextVideoAbsolutePath);
+            mNextVideoAbsolutePath = null;
+        }
 //        mNextVideoAbsolutePath = null;
 
         mProgress.setVisibility(View.INVISIBLE);
@@ -895,6 +905,14 @@ public class Camera2VideoFragment extends Fragment
                     mIsReady2Send = true;
                 }else {
                     // FIX ME ready to send;
+                    String uploadFilename;
+                    synchronized (mVideoQueue) {
+                        uploadFilename = mVideoQueue.size() != 0 ? mVideoQueue.getFirst(): null;
+                    }
+                    if(uploadFilename != null) {
+                        mBackgroundHandler.post(new VideoUpload(uploadFilename));
+                    }
+
                     resetToReadyRecording();
                 }
             break;
@@ -1292,6 +1310,9 @@ public class Camera2VideoFragment extends Fragment
                     rotatedPreviewWidth, rotatedPreviewHeight, maxPreviewWidth,
                     maxPreviewHeight, largest);
 
+            mVideoSize = chooseVideoSize(map.getOutputSizes(MediaRecorder.class));
+
+
             // We fit the aspect ratio of TextureView to the size of preview we picked.
             int orientation = getResources().getConfiguration().orientation;
             if (orientation == Configuration.ORIENTATION_LANDSCAPE) {
@@ -1321,6 +1342,21 @@ public class Camera2VideoFragment extends Fragment
         if (mFlashSupported) {
             requestBuilder.set(CaptureRequest.CONTROL_AE_MODE,
                     CaptureRequest.CONTROL_AE_MODE_ON_AUTO_FLASH);
+        }
+    }
+
+
+
+    private static class VideoUpload implements  Runnable {
+
+
+        public VideoUpload(String videoFile) {
+
+        }
+
+        @Override
+        public void run() {
+
         }
     }
 
