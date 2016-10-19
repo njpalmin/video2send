@@ -35,10 +35,12 @@ import android.media.CamcorderProfile;
 import android.media.Image;
 import android.media.ImageReader;
 import android.media.MediaRecorder;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.CountDownTimer;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.provider.Settings;
 import android.support.annotation.NonNull;
 import android.support.design.widget.FloatingActionButton;
 import android.support.v13.app.FragmentCompat;
@@ -62,9 +64,14 @@ import android.widget.ImageButton;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
+import java.io.DataOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -82,6 +89,7 @@ public class Camera2VideoFragment extends Fragment
     private static final int SENSOR_ORIENTATION_INVERSE_DEGREES = 270;
     private static final SparseIntArray DEFAULT_ORIENTATIONS = new SparseIntArray();
     private static final SparseIntArray INVERSE_ORIENTATIONS = new SparseIntArray();
+    private static final String UPLOAD_URL = "http://api.playgroundz.tv/api/video/appupload";
 
     private static final String TAG = "Camera2VideoFragment";
     private static final int REQUEST_VIDEO_PERMISSIONS = 1;
@@ -89,7 +97,6 @@ public class Camera2VideoFragment extends Fragment
     private static final int VIDEO_DURATION = 10 * 1000; // 10s
     private static final int FACING_CAMERA = 1;
     private static final int BACK_CAMERA = 0;
-
 
     static final float INTERMEDIATE_SCALE = 0.75f;
     static final float[] PRE_FINISHRECORDING_SCALE = {1.0f, INTERMEDIATE_SCALE};
@@ -229,9 +236,6 @@ public class Camera2VideoFragment extends Fragment
             mCameraDevice = cameraDevice;
             mCameraOpenCloseLock.release();
             startPreview();
-//            if (null != mTextureView) {
-//                configureTransform(mTextureView.getWidth(), mTextureView.getHeight());
-//            }
         }
 
         @Override
@@ -361,19 +365,9 @@ public class Camera2VideoFragment extends Fragment
         mButtonVideo.setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View view, MotionEvent motionEvent) {
-//                if(motionEvent.getAction() == MotionEvent.ACTION_DOWN){
-//
-//                        startRecordingVideo();
-//                }else
                 if(motionEvent.getAction() == MotionEvent.ACTION_UP){
                     if(!mIsRecordingVideo)
                         return false;
-
-//                    if(mTimeUp){
-//                        stopRecordingVideo(false);
-//                    }else {
-//                        stopRecordingVideo(true);
-//                    }
                     stopRecordingVideo();
                 }
                 return false;
@@ -483,7 +477,7 @@ public class Camera2VideoFragment extends Fragment
         }
 
         if(mVideoQueue.size() != 0){
-            mBackgroundHandler.post(new VideoUpload(mVideoQueue.getFirst()));
+            new UploadVideoTask().execute(mVideoQueue.getFirst(),null,null);
         }
     }
 
@@ -837,6 +831,12 @@ public class Camera2VideoFragment extends Fragment
         // UI
         mIsRecordingVideo = false;
         // Stop recording
+        try {
+            mMediaRecorder.stop();
+            mMediaRecorder.reset();
+        }catch (RuntimeException re){
+            Log.e(TAG,re.getStackTrace().toString());
+        }
 
 
         if(mAnimatior != null)
@@ -844,13 +844,12 @@ public class Camera2VideoFragment extends Fragment
 
         mSwitchCamera.setClickable(true);
 
-        showToast(mNextVideoAbsolutePath);
+//        showToast(mNextVideoAbsolutePath);
 
         synchronized (mVideoQueue){
             mVideoQueue.add(mNextVideoAbsolutePath);
             mNextVideoAbsolutePath = null;
         }
-//        mNextVideoAbsolutePath = null;
 
         mProgress.setVisibility(View.INVISIBLE);
         mProgress.setProgress(0);
@@ -858,6 +857,7 @@ public class Camera2VideoFragment extends Fragment
 
         mCircleAnimator.start();
         mPreAnimator.start();
+
 
         closeCamera();
 
@@ -867,8 +867,6 @@ public class Camera2VideoFragment extends Fragment
     public void onClick(View view) {
         switch(view.getId()){
             case R.id.video:
-//                if(!mIsRecordingVideo)
-//                    startRecordingVideo();
                 if(!mLongPressed) {
                     try {
                         takePicture();
@@ -905,15 +903,15 @@ public class Camera2VideoFragment extends Fragment
                     mIsReady2Send = true;
                 }else {
                     // FIX ME ready to send;
+                    resetToReadyRecording();
                     String uploadFilename;
                     synchronized (mVideoQueue) {
                         uploadFilename = mVideoQueue.size() != 0 ? mVideoQueue.getFirst(): null;
                     }
+                    Log.d(TAG,"upload video uploadFilename = "+ uploadFilename);
                     if(uploadFilename != null) {
-                        mBackgroundHandler.post(new VideoUpload(uploadFilename));
+                        new UploadVideoTask().execute(uploadFilename,null,null);
                     }
-
-                    resetToReadyRecording();
                 }
             break;
             case R.id.close:
@@ -991,6 +989,7 @@ public class Camera2VideoFragment extends Fragment
     }
 
     private void resetToReadyRecording(){
+        Log.d(TAG,"resetToReadyRecording");
         FragmentManager manager = getActivity().getFragmentManager();
         FragmentTransaction ft = manager.beginTransaction();
         this.onDestroy();
@@ -1085,7 +1084,7 @@ public class Camera2VideoFragment extends Fragment
                 public void onCaptureCompleted(@NonNull CameraCaptureSession session,
                                                @NonNull CaptureRequest request,
                                                @NonNull TotalCaptureResult result) {
-                    showToast("Saved: " + mImageFile);
+//                    showToast("Saved: " + mImageFile);
 //                    Log.d(TAG, mFile.toString());
                     unlockFocus();
                 }
@@ -1345,19 +1344,103 @@ public class Camera2VideoFragment extends Fragment
         }
     }
 
+    private class UploadVideoTask extends AsyncTask<String,Void,Void>{
+        HttpURLConnection mConn;
+        DataOutputStream mDos;
+        int bytesRead, bytesAvailable, bufferSize;
+        byte[] buffer;
+        int maxBufferSize = 1 * 1024 * 1024;
+        String lineEnd = "\r\n";
+        String twoHyphens = "--";
+        String boundary = "*****";
+        private int serverResponseCode = 0;
+        String androidId;
+
+        @Override
+        protected Void doInBackground(String... params) {
+            try {
+                String videoFile  =  params[0];
+                Log.d(TAG,"doInBackground file = "+ params[0]);
+                FileInputStream fileInputStream = new FileInputStream(new File(videoFile));
+                URL url = new URL(UPLOAD_URL);
+                mConn = (HttpURLConnection)url.openConnection();
+                mConn.setDoInput(true); // Allow Inputs
+                mConn.setDoOutput(true); // Allow Outputs
+                mConn.setUseCaches(false); // Don't use a Cached Copy
+                mConn.setRequestMethod("POST");
+                mConn.setRequestProperty("Connection", "Keep-Alive");
+                mConn.setRequestProperty("ENCTYPE", "multipart/form-data");
+                mConn.setRequestProperty("Content-Type", "multipart/form-data;boundary=" + boundary);
+                mConn.setRequestProperty("file", videoFile);
+                mConn.setRequestProperty("account","test");
+                mConn.setRequestProperty("email","alphalilin@gmail.com");
+                mConn.setRequestProperty("androidid",androidId);
 
 
-    private static class VideoUpload implements  Runnable {
+                mDos = new DataOutputStream(mConn.getOutputStream());
+
+                mDos.writeBytes(twoHyphens + boundary + lineEnd);
+                mDos.writeBytes("Content-Disposition: form-data; name=\"bill\";filename=\""
+                        + videoFile + "\"" + lineEnd);
+
+                mDos.writeBytes(lineEnd);
+
+                // create a buffer of maximum size
+                bytesAvailable = fileInputStream.available();
+
+                bufferSize = Math.min(bytesAvailable, maxBufferSize);
+                buffer = new byte[bufferSize];
+
+                // read file and write it into form...
+                bytesRead = fileInputStream.read(buffer, 0, bufferSize);
+
+                while (bytesRead > 0) {
+
+                    mDos.write(buffer, 0, bufferSize);
+                    bytesAvailable = fileInputStream.available();
+                    bufferSize = Math
+                            .min(bytesAvailable, maxBufferSize);
+                    bytesRead = fileInputStream.read(buffer, 0,
+                            bufferSize);
+
+                }
+
+                // send multipart form data necesssary after file
+                // data...
+                mDos.writeBytes(lineEnd);
+                mDos.writeBytes(twoHyphens + boundary + twoHyphens
+                        + lineEnd);
+                serverResponseCode = mConn.getResponseCode();
+                String serverResponseMessage = mConn.getResponseMessage();
+                Log.i(TAG, "HTTP Response is : " + serverResponseMessage + ": " + serverResponseCode);
+                if (serverResponseCode == 200) {
+                    //FIX ME  delete the file
+                    showToast("Upload Finished");
+                }
+                // Responses from the server (code and message)
+//                serverResponseCode = mConn.getResponseCode();
+//                String serverResponseMessage = mConn.getResponseMessage();
+//                Log.i(TAG, "HTTP Response is : " + serverResponseMessage + ": " + serverResponseCode);
+//                if (serverResponseCode == 200) {
+//                }
+
+                // close the streams //
+                fileInputStream.close();
+                mDos.flush();
+                mDos.close();
 
 
-        public VideoUpload(String videoFile) {
-
+            }catch (IOException ioe){
+                Log.e(TAG,ioe.getMessage());
+            }
+            return null;
         }
 
         @Override
-        public void run() {
-
+        protected void onPreExecute() {
+            androidId = Settings.System.getString(getActivity().getContentResolver(), Settings.System.ANDROID_ID);
+            Log.d(TAG,"androidId = " + androidId);
         }
-    }
 
+    }
 }
