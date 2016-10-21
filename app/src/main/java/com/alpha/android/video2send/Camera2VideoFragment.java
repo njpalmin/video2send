@@ -1,4 +1,3 @@
-
 package com.alpha.android.video2send;
 
 import android.Manifest;
@@ -31,6 +30,9 @@ import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.params.StreamConfigurationMap;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.media.CamcorderProfile;
 import android.media.Image;
 import android.media.ImageReader;
@@ -83,7 +85,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 public class Camera2VideoFragment extends Fragment
-        implements View.OnClickListener, FragmentCompat.OnRequestPermissionsResultCallback {
+        implements View.OnClickListener, FragmentCompat.OnRequestPermissionsResultCallback, LocationListener {
 
     private static final int SENSOR_ORIENTATION_DEFAULT_DEGREES = 90;
     private static final int SENSOR_ORIENTATION_INVERSE_DEGREES = 270;
@@ -104,10 +106,14 @@ public class Camera2VideoFragment extends Fragment
     static final int PRE_DURATION_MS = 350;
 
 
-
     private static final String[] VIDEO_PERMISSIONS = {
             Manifest.permission.CAMERA,
             Manifest.permission.RECORD_AUDIO,
+    };
+
+    private static final String[] LOCATION_PERMISSIONS = {
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
     };
 
     static {
@@ -123,6 +129,7 @@ public class Camera2VideoFragment extends Fragment
         INVERSE_ORIENTATIONS.append(Surface.ROTATION_180, 90);
         INVERSE_ORIENTATIONS.append(Surface.ROTATION_270, 0);
     }
+
     /**
      * Camera state: Showing camera preview.
      */
@@ -152,7 +159,7 @@ public class Camera2VideoFragment extends Fragment
     private ObjectAnimator mPreAnimator;
     private Animator mCircleAnimator;
     private String mCurrentCameraId = "0";
-    private List<String> mCameraIdList ;
+    private List<String> mCameraIdList;
     private String mFacingCameraId;
     private String mBackCameraId;
     private ImageReader mImageReader;
@@ -166,7 +173,6 @@ public class Camera2VideoFragment extends Fragment
 
     private ProgressBar mProgress;
     private ObjectAnimator mAnimatior;
-//    private boolean mTimeUp;
 
     private CameraDevice mCameraDevice;
     private CameraCaptureSession mPreviewSession;
@@ -182,17 +188,22 @@ public class Camera2VideoFragment extends Fragment
     private Semaphore mCameraOpenCloseLock = new Semaphore(1);
     private boolean mLongPressed;
 
+    LocationManager mLm;
+    double mLongitude;
+    double mLatitude;
+    double mLocAccuracy;
+
     private ImageReader.OnImageAvailableListener mOnImageAvailableListener = new ImageReader.OnImageAvailableListener() {
         @Override
         public void onImageAvailable(ImageReader imageReader) {
-            Log.d(TAG,"onImageAvailable");
+            Log.d(TAG, "onImageAvailable");
             mBackgroundHandler.post(new ImageSaver(imageReader.acquireNextImage(), mImageFile));
             getActivity().runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
-                    try{
+                    try {
                         updateCameraPreviewSession();
-                    }catch (CameraAccessException e){
+                    } catch (CameraAccessException e) {
                         e.printStackTrace();
                     }
                 }
@@ -209,8 +220,8 @@ public class Camera2VideoFragment extends Fragment
         @Override
         public void onSurfaceTextureAvailable(SurfaceTexture surfaceTexture,
                                               int width, int height) {
-            Log.d(TAG,"onSufaceTextureAvailable");
-            openCamera(width, height,mCurrentCameraId);
+            Log.d(TAG, "onSufaceTextureAvailable");
+            openCamera(width, height, mCurrentCameraId);
         }
 
         @Override
@@ -248,7 +259,7 @@ public class Camera2VideoFragment extends Fragment
 
         @Override
         public void onError(CameraDevice cameraDevice, int error) {
-            Log.d(TAG,"onError error = " + error);
+            Log.d(TAG, "onError error = " + error);
             mCameraOpenCloseLock.release();
             cameraDevice.close();
             mCameraDevice = null;
@@ -260,7 +271,7 @@ public class Camera2VideoFragment extends Fragment
 
     };
 
-    private CountDownTimer mTimer = new CountDownTimer(VIDEO_DURATION,1000) {
+    private CountDownTimer mTimer = new CountDownTimer(VIDEO_DURATION, 1000) {
         @Override
         public void onTick(long l) {
 
@@ -268,7 +279,7 @@ public class Camera2VideoFragment extends Fragment
 
         @Override
         public void onFinish() {
-            if(mIsRecordingVideo)
+            if (mIsRecordingVideo)
                 stopRecordingVideo();
         }
     };
@@ -290,7 +301,7 @@ public class Camera2VideoFragment extends Fragment
 
 
     private static Size chooseOptimalSize(Size[] choices, int textureViewWidth,
-                int textureViewHeight, int maxWidth, int maxHeight, Size aspectRatio) {
+                                          int textureViewHeight, int maxWidth, int maxHeight, Size aspectRatio) {
 
         // Collect the supported resolutions that are at least as big as the preview Surface
         List<Size> bigEnough = new ArrayList<>();
@@ -366,35 +377,35 @@ public class Camera2VideoFragment extends Fragment
         mButtonVideo.setOnTouchListener(new View.OnTouchListener() {
             @Override
             public boolean onTouch(View view, MotionEvent motionEvent) {
-                if(motionEvent.getAction() == MotionEvent.ACTION_UP){
-                    if(!mIsRecordingVideo)
+                if (motionEvent.getAction() == MotionEvent.ACTION_UP) {
+                    if (!mIsRecordingVideo)
                         return false;
                     stopRecordingVideo();
                 }
                 return false;
             }
         });
-        mButtonVideo.setOnLongClickListener(new View.OnLongClickListener(){
+        mButtonVideo.setOnLongClickListener(new View.OnLongClickListener() {
 
             @Override
             public boolean onLongClick(View view) {
                 mLongPressed = true;
-                if(!mIsRecordingVideo)
+                if (!mIsRecordingVideo)
                     startRecordingVideo();
                 return false;
             }
         });
 
-        mClear = (ImageButton)view.findViewById(R.id.clear);
-        mSwitchCamera = (ImageButton)view.findViewById(R.id.switch_camera);
-        mClose = (ImageButton)view.findViewById(R.id.close);
+        mClear = (ImageButton) view.findViewById(R.id.clear);
+        mSwitchCamera = (ImageButton) view.findViewById(R.id.switch_camera);
+        mClose = (ImageButton) view.findViewById(R.id.close);
         mClose.setOnClickListener(this);
 
 
         mClear.setOnClickListener(this);
         mSwitchCamera.setOnClickListener(this);
 
-        mProgress = (ProgressBar)view.findViewById(R.id.progressBar);
+        mProgress = (ProgressBar) view.findViewById(R.id.progressBar);
         mControl = view.findViewById(R.id.control);
         mBgView = view.findViewById(R.id.background);
 
@@ -407,7 +418,7 @@ public class Camera2VideoFragment extends Fragment
         mPreAnimator = ObjectAnimator.ofPropertyValuesHolder(mTextureView, preX, preY);
         mPreAnimator.setInterpolator(new DecelerateInterpolator());
         mPreAnimator.setDuration(PRE_DURATION_MS);
-        mPreAnimator.addListener(new Animator.AnimatorListener(){
+        mPreAnimator.addListener(new Animator.AnimatorListener() {
 
             @Override
             public void onAnimationStart(Animator animator) {
@@ -431,7 +442,7 @@ public class Camera2VideoFragment extends Fragment
             }
         });
 
-        view.addOnLayoutChangeListener(new View.OnLayoutChangeListener(){
+        view.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
 
             @Override
             public void onLayoutChange(View view, int i, int i1, int i2, int i3, int i4, int i5, int i6, int i7) {
@@ -464,6 +475,13 @@ public class Camera2VideoFragment extends Fragment
             }
         });
         mLongPressed = false;
+
+        if(!hasPermissionsGranted(LOCATION_PERMISSIONS)){
+            requestPermissions(LOCATION_PERMISSIONS);
+            return;
+        }
+        mLm = (LocationManager) getActivity().getSystemService(Context.LOCATION_SERVICE);
+        mLm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000, 10, this);
     }
 
     @Override
@@ -484,7 +502,7 @@ public class Camera2VideoFragment extends Fragment
 
     @Override
     public void onPause() {
-        mCurrentCameraId = "0";
+        Log.d(TAG,"onPause");
         closeCamera();
         stopBackgroundThread();
         super.onPause();
@@ -531,8 +549,8 @@ public class Camera2VideoFragment extends Fragment
     /**
      * Requests permissions needed for recording video.
      */
-    private void requestVideoPermissions() {
-        if (shouldShowRequestPermissionRationale(VIDEO_PERMISSIONS)) {
+    private void requestPermissions(String[] permissions) {
+        if (shouldShowRequestPermissionRationale(permissions)) {
             new ConfirmationDialog().show(getChildFragmentManager(), FRAGMENT_DIALOG);
         } else {
             FragmentCompat.requestPermissions(this, VIDEO_PERMISSIONS, REQUEST_VIDEO_PERMISSIONS);
@@ -577,7 +595,7 @@ public class Camera2VideoFragment extends Fragment
      */
     private void openCamera(int width, int height,String cameraId) {
         if (!hasPermissionsGranted(VIDEO_PERMISSIONS)) {
-            requestVideoPermissions();
+            requestPermissions(VIDEO_PERMISSIONS);
             return;
         }
         final Activity activity = getActivity();
@@ -608,6 +626,7 @@ public class Camera2VideoFragment extends Fragment
     }
 
     private void closeCamera() {
+        Log.d(TAG,"closeCamera");
         try {
             mCameraOpenCloseLock.acquire();
 //            closePreviewSession();
@@ -841,14 +860,11 @@ public class Camera2VideoFragment extends Fragment
         mIsRecordingVideo = false;
         // Stop recording
         try {
-//            mPreviewSession.stopRepeating();
-//            mPreviewSession.abortCaptures();
             mMediaRecorder.stop();
         }catch (RuntimeException re){
             Log.e(TAG,re.getStackTrace().toString());
-//        }catch (CameraAccessException cae){
-//            Log.e(TAG,cae.getMessage());
         }
+
         mMediaRecorder.reset();
 
         if(mAnimatior != null)
@@ -870,6 +886,7 @@ public class Camera2VideoFragment extends Fragment
         mCircleAnimator.start();
         mPreAnimator.start();
         closeCamera();
+//        startPreview();
     }
 
     @Override
@@ -892,11 +909,15 @@ public class Camera2VideoFragment extends Fragment
                 if(mAnimatior != null && mAnimatior.isRunning())
                     mAnimatior.cancel();
                 mTimer.cancel();
-                closeCamera();
+//                closeCamera();
                 getActivity().finish();
             break;
             case R.id.switch_camera:
-                closeCamera();
+//                closeCamera();
+                if (null != mCameraDevice) {
+                    mCameraDevice.close();
+                    mCameraDevice = null;
+                }
                 if(mCameraIdList.get(FACING_CAMERA) == mCurrentCameraId ) {
                     mCurrentCameraId = mCameraIdList.get(BACK_CAMERA);
                 } else if(mCameraIdList.get(BACK_CAMERA) ==  mCurrentCameraId){
@@ -930,7 +951,6 @@ public class Camera2VideoFragment extends Fragment
 
         }
     }
-
 
     static class CompareSizesByArea implements Comparator<Size> {
 
@@ -1262,10 +1282,7 @@ public class Camera2VideoFragment extends Fragment
             Size largest = Collections.max(
                     Arrays.asList(map.getOutputSizes(ImageFormat.JPEG)),
                     new CompareSizesByArea());
-            Log.d(TAG,"largest = " + largest);
             mVideoSize  = chooseVideoSize(map.getOutputSizes(MediaRecorder.class));
-            Log.d(TAG,"video size = " + mVideoSize);
-
             mImageReader = ImageReader.newInstance(largest.getWidth(), largest.getHeight(),
                     ImageFormat.JPEG, /*maxImages*/1);
             mImageReader.setOnImageAvailableListener(
@@ -1321,8 +1338,6 @@ public class Camera2VideoFragment extends Fragment
             // garbage capture data.
             mPreviewSize = chooseOptimalSize(map.getOutputSizes(SurfaceTexture.class),
                     width, height, mVideoSize/*largest*/);
-
-            Log.d(TAG,"preview size = " + mPreviewSize);
 
             // We fit the aspect ratio of TextureView to the size of preview we picked.
             int orientation = getResources().getConfiguration().orientation;
@@ -1387,6 +1402,9 @@ public class Camera2VideoFragment extends Fragment
                 mConn.setRequestProperty("account","test");
                 mConn.setRequestProperty("email","alphalilin@gmail.com");
                 mConn.setRequestProperty("androidid",androidId);
+                mConn.setRequestProperty("lat",String.valueOf(mLatitude));
+                mConn.setRequestProperty("long",String.valueOf(mLongitude));
+                mConn.setRequestProperty("accuracy",String.valueOf(mLocAccuracy));
 
 
                 mDos = new DataOutputStream(mConn.getOutputStream());
@@ -1447,6 +1465,30 @@ public class Camera2VideoFragment extends Fragment
             androidId = Settings.System.getString(getActivity().getContentResolver(), Settings.System.ANDROID_ID);
             Log.d(TAG,"androidId = " + androidId);
         }
+
+    }
+
+
+    @Override
+    public void onLocationChanged(Location location) {
+        Log.d(TAG,"lat = " + location.getLatitude() + " long = "+ location.getLongitude() + " accuracy = " + location.getAccuracy());
+        mLatitude = location.getLatitude();
+        mLongitude = location.getLongitude();
+        mLocAccuracy = location.getAccuracy();
+    }
+
+    @Override
+    public void onStatusChanged(String provider, int status, Bundle extras) {
+
+    }
+
+    @Override
+    public void onProviderEnabled(String provider) {
+
+    }
+
+    @Override
+    public void onProviderDisabled(String provider) {
 
     }
 }
