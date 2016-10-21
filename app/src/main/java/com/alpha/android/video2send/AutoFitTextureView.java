@@ -4,12 +4,14 @@ package com.alpha.android.video2send;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.view.TextureView;
 
 /**
  * A {@link TextureView} that can be adjusted to a specified aspect ratio.
  */
 public class AutoFitTextureView extends TextureView {
+    private final String TAG = "AutoFitTextureView";
 
     private int mRatioWidth = 0;
     private int mRatioHeight = 0;

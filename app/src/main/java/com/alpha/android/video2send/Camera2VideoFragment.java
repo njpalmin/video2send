@@ -99,6 +99,7 @@ public class Camera2VideoFragment extends Fragment
     private static final int BACK_CAMERA = 0;
 
     static final float INTERMEDIATE_SCALE = 0.75f;
+    static final float PARTIAL_DISPLAY_RATIO = 0.75f;
     static final float[] PRE_FINISHRECORDING_SCALE = {1.0f, INTERMEDIATE_SCALE};
     static final int PRE_DURATION_MS = 350;
 
@@ -247,13 +248,14 @@ public class Camera2VideoFragment extends Fragment
 
         @Override
         public void onError(CameraDevice cameraDevice, int error) {
+            Log.d(TAG,"onError error = " + error);
             mCameraOpenCloseLock.release();
             cameraDevice.close();
             mCameraDevice = null;
-            Activity activity = getActivity();
-            if (null != activity) {
-                activity.finish();
-            }
+//            Activity activity = getActivity();
+//            if (null != activity) {
+//                activity.finish();
+//            }
         }
 
     };
@@ -268,7 +270,6 @@ public class Camera2VideoFragment extends Fragment
         public void onFinish() {
             if(mIsRecordingVideo)
                 stopRecordingVideo();
-//            mTimeUp = true;
         }
     };
 
@@ -321,26 +322,26 @@ public class Camera2VideoFragment extends Fragment
         }
     }
 
-//    private static Size chooseOptimalSize(Size[] choices, int width, int height, Size aspectRatio) {
-//        // Collect the supported resolutions that are at least as big as the preview Surface
-//        List<Size> bigEnough = new ArrayList<Size>();
-//        int w = aspectRatio.getWidth();
-//        int h = aspectRatio.getHeight();
-//        for (Size option : choices) {
-//            if (option.getHeight() == option.getWidth() * h / w &&
-//                    option.getWidth() >= width && option.getHeight() >= height) {
-//                bigEnough.add(option);
-//            }
-//        }
-//
-//        // Pick the smallest of those, assuming we found any
-//        if (bigEnough.size() > 0) {
-//            return Collections.min(bigEnough, new CompareSizesByArea());
-//        } else {
-//            Log.e(TAG, "Couldn't find any suitable preview size");
-//            return choices[0];
-//        }
-//    }
+    private static Size chooseOptimalSize(Size[] choices, int width, int height, Size aspectRatio) {
+        // Collect the supported resolutions that are at least as big as the preview Surface
+        List<Size> bigEnough = new ArrayList<Size>();
+        int w = aspectRatio.getWidth();
+        int h = aspectRatio.getHeight();
+        for (Size option : choices) {
+            if (option.getHeight() == option.getWidth() * h / w &&
+                    option.getWidth() >= width && option.getHeight() >= height) {
+                bigEnough.add(option);
+            }
+        }
+
+        // Pick the smallest of those, assuming we found any
+        if (bigEnough.size() > 0) {
+            return Collections.min(bigEnough, new CompareSizesByArea());
+        } else {
+            Log.e(TAG, "Couldn't find any suitable preview size");
+            return choices[0];
+        }
+    }
 
     @Override
     public void onActivityCreated(Bundle savedInstanceState) {
@@ -483,6 +484,7 @@ public class Camera2VideoFragment extends Fragment
 
     @Override
     public void onPause() {
+        mCurrentCameraId = "0";
         closeCamera();
         stopBackgroundThread();
         super.onPause();
@@ -583,6 +585,7 @@ public class Camera2VideoFragment extends Fragment
             return;
         }
         CameraManager manager = (CameraManager) activity.getSystemService(Context.CAMERA_SERVICE);
+        height = (int)(height * PARTIAL_DISPLAY_RATIO);
         try {
             Log.d(TAG, "tryAcquire");
             if (!mCameraOpenCloseLock.tryAcquire(2500, TimeUnit.MILLISECONDS)) {
@@ -607,10 +610,14 @@ public class Camera2VideoFragment extends Fragment
     private void closeCamera() {
         try {
             mCameraOpenCloseLock.acquire();
-            closePreviewSession();
+//            closePreviewSession();
             if (null != mCameraDevice) {
                 mCameraDevice.close();
                 mCameraDevice = null;
+            }
+            if (mPreviewSession != null) {
+                mPreviewSession.close();
+                mPreviewSession = null;
             }
             if (null != mMediaRecorder) {
                 mMediaRecorder.release();
@@ -622,6 +629,8 @@ public class Camera2VideoFragment extends Fragment
             }
         } catch (InterruptedException e) {
             throw new RuntimeException("Interrupted while trying to lock camera closing.");
+        } catch (IllegalStateException lse){
+            Log.e(TAG,lse.getMessage());
         } finally {
             mCameraOpenCloseLock.release();
         }
@@ -635,7 +644,7 @@ public class Camera2VideoFragment extends Fragment
             return;
         }
         try {
-//            closePreviewSession();
+            closePreviewSession();
             SurfaceTexture texture = mTextureView.getSurfaceTexture();
             assert texture != null;
             texture.setDefaultBufferSize(mPreviewSize.getWidth(), mPreviewSize.getHeight());
@@ -654,7 +663,7 @@ public class Camera2VideoFragment extends Fragment
 
                 @Override
                 public void onConfigureFailed(CameraCaptureSession cameraCaptureSession) {
-                    Log.d(TAG, "onConfigureFailed");
+                    Log.d(TAG, "onConfigureFailed " + cameraCaptureSession);
                     Activity activity = getActivity();
                     if (null != activity) {
                         Toast.makeText(activity, "Failed", Toast.LENGTH_SHORT).show();
@@ -832,12 +841,15 @@ public class Camera2VideoFragment extends Fragment
         mIsRecordingVideo = false;
         // Stop recording
         try {
+//            mPreviewSession.stopRepeating();
+//            mPreviewSession.abortCaptures();
             mMediaRecorder.stop();
-            mMediaRecorder.reset();
         }catch (RuntimeException re){
             Log.e(TAG,re.getStackTrace().toString());
+//        }catch (CameraAccessException cae){
+//            Log.e(TAG,cae.getMessage());
         }
-
+        mMediaRecorder.reset();
 
         if(mAnimatior != null)
             mAnimatior.cancel();
@@ -857,10 +869,7 @@ public class Camera2VideoFragment extends Fragment
 
         mCircleAnimator.start();
         mPreAnimator.start();
-
-
         closeCamera();
-
     }
 
     @Override
@@ -1084,7 +1093,7 @@ public class Camera2VideoFragment extends Fragment
                 public void onCaptureCompleted(@NonNull CameraCaptureSession session,
                                                @NonNull CaptureRequest request,
                                                @NonNull TotalCaptureResult result) {
-//                    showToast("Saved: " + mImageFile);
+                    showToast("Picture Taken");
 //                    Log.d(TAG, mFile.toString());
                     unlockFocus();
                 }
@@ -1150,13 +1159,13 @@ public class Camera2VideoFragment extends Fragment
                     break;
                 case STATE_WAITING_LOCK:
                     Integer afState = result.get(CaptureResult.CONTROL_AF_STATE);
-                    Log.d("checkState", "afState--->" + afState);
+                    Log.d(TAG, "check state afState--->" + afState);
                     if(afState == null){
                         captureStillPicture();
                     }else if(CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED == afState ||
                              CaptureResult.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED == afState) {
                         Integer aeState = result.get(CaptureResult.CONTROL_AE_STATE);
-                        Log.d("checkState", "aeState--->" + aeState);
+                        Log.d(TAG, " check state aeState--->" + aeState);
                         if (aeState == null || aeState == CaptureResult.CONTROL_AE_STATE_CONVERGED) {
                             mState = STATE_PICTURE_TAKEN;
                             captureStillPicture();
@@ -1214,6 +1223,7 @@ public class Camera2VideoFragment extends Fragment
 
         @Override
         public void run() {
+//            Log.d(TAG,"save image "+ mFile);
             ByteBuffer buffer = mImage.getPlanes()[0].getBuffer();
             byte[] bytes = new byte[buffer.remaining()];
             buffer.get(bytes);
@@ -1252,6 +1262,10 @@ public class Camera2VideoFragment extends Fragment
             Size largest = Collections.max(
                     Arrays.asList(map.getOutputSizes(ImageFormat.JPEG)),
                     new CompareSizesByArea());
+            Log.d(TAG,"largest = " + largest);
+            mVideoSize  = chooseVideoSize(map.getOutputSizes(MediaRecorder.class));
+            Log.d(TAG,"video size = " + mVideoSize);
+
             mImageReader = ImageReader.newInstance(largest.getWidth(), largest.getHeight(),
                     ImageFormat.JPEG, /*maxImages*/1);
             mImageReader.setOnImageAvailableListener(
@@ -1306,11 +1320,9 @@ public class Camera2VideoFragment extends Fragment
             // bus' bandwidth limitation, resulting in gorgeous previews but the storage of
             // garbage capture data.
             mPreviewSize = chooseOptimalSize(map.getOutputSizes(SurfaceTexture.class),
-                    rotatedPreviewWidth, rotatedPreviewHeight, maxPreviewWidth,
-                    maxPreviewHeight, largest);
+                    width, height, mVideoSize/*largest*/);
 
-            mVideoSize = chooseVideoSize(map.getOutputSizes(MediaRecorder.class));
-
+            Log.d(TAG,"preview size = " + mPreviewSize);
 
             // We fit the aspect ratio of TextureView to the size of preview we picked.
             int orientation = getResources().getConfiguration().orientation;
@@ -1417,12 +1429,6 @@ public class Camera2VideoFragment extends Fragment
                     //FIX ME  delete the file
                     showToast("Upload Finished");
                 }
-                // Responses from the server (code and message)
-//                serverResponseCode = mConn.getResponseCode();
-//                String serverResponseMessage = mConn.getResponseMessage();
-//                Log.i(TAG, "HTTP Response is : " + serverResponseMessage + ": " + serverResponseCode);
-//                if (serverResponseCode == 200) {
-//                }
 
                 // close the streams //
                 fileInputStream.close();
