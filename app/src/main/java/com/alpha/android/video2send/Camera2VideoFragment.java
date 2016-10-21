@@ -95,6 +95,8 @@ public class Camera2VideoFragment extends Fragment
 
     private static final String TAG = "Camera2VideoFragment";
     private static final int REQUEST_VIDEO_PERMISSIONS = 1;
+    private static final int REQUEST_GPS_PERMISSIONS = 2;
+    private static final int  REQUEST_PERMISSIONS_CODE =3;
     private static final String FRAGMENT_DIALOG = "dialog";
     private static final int VIDEO_DURATION = 10 * 1000; // 10s
     private static final int FACING_CAMERA = 1;
@@ -105,6 +107,7 @@ public class Camera2VideoFragment extends Fragment
     static final float[] PRE_FINISHRECORDING_SCALE = {1.0f, INTERMEDIATE_SCALE};
     static final int PRE_DURATION_MS = 350;
 
+    private static final int BEST_VIDEO_SIZE = 720;
 
     private static final String[] VIDEO_PERMISSIONS = {
             Manifest.permission.CAMERA,
@@ -246,8 +249,8 @@ public class Camera2VideoFragment extends Fragment
         @Override
         public void onOpened(CameraDevice cameraDevice) {
             mCameraDevice = cameraDevice;
-            mCameraOpenCloseLock.release();
             startPreview();
+            mCameraOpenCloseLock.release();
         }
 
         @Override
@@ -291,7 +294,7 @@ public class Camera2VideoFragment extends Fragment
 
     private static Size chooseVideoSize(Size[] choices) {
         for (Size size : choices) {
-            if (size.getWidth() == size.getHeight() * 4 / 3 && size.getWidth() <= 1080) {
+            if (size.getWidth() == size.getHeight() * 4 / 3 && size.getWidth() <= BEST_VIDEO_SIZE) {
                 return size;
             }
         }
@@ -553,16 +556,16 @@ public class Camera2VideoFragment extends Fragment
         if (shouldShowRequestPermissionRationale(permissions)) {
             new ConfirmationDialog().show(getChildFragmentManager(), FRAGMENT_DIALOG);
         } else {
-            FragmentCompat.requestPermissions(this, VIDEO_PERMISSIONS, REQUEST_VIDEO_PERMISSIONS);
+            FragmentCompat.requestPermissions(this, permissions, REQUEST_PERMISSIONS_CODE);
         }
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
                                            @NonNull int[] grantResults) {
-        Log.d(TAG, "onRequestPermissionsResult");
-        if (requestCode == REQUEST_VIDEO_PERMISSIONS) {
-            if (grantResults.length == VIDEO_PERMISSIONS.length) {
+//        Log.d(TAG, "onRequestPermissionsResult permissions = " + permissions[0]);
+        if (requestCode == REQUEST_PERMISSIONS_CODE) {
+            if (grantResults.length == permissions.length) {
                 for (int result : grantResults) {
                     if (result != PackageManager.PERMISSION_GRANTED) {
                         ErrorDialog.newInstance(getString(R.string.request_permission))
@@ -594,6 +597,7 @@ public class Camera2VideoFragment extends Fragment
      * Tries to open a {@link CameraDevice}. The result is listened by `mStateCallback`.
      */
     private void openCamera(int width, int height,String cameraId) {
+        Log.d(TAG,"openCamera");
         if (!hasPermissionsGranted(VIDEO_PERMISSIONS)) {
             requestPermissions(VIDEO_PERMISSIONS);
             return;
@@ -755,7 +759,8 @@ public class Camera2VideoFragment extends Fragment
             mNextVideoAbsolutePath = getVideoFilePath(getActivity());
         }
         mMediaRecorder.setOutputFile(mNextVideoAbsolutePath);
-        mMediaRecorder.setVideoEncodingBitRate(10000000);
+//        mMediaRecorder.setVideoEncodingBitRate(10000000);
+        mMediaRecorder.setVideoEncodingBitRate(690000);
         mMediaRecorder.setVideoFrameRate(30);
         mMediaRecorder.setVideoSize(mVideoSize.getWidth(), mVideoSize.getHeight());
         mMediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
@@ -822,12 +827,12 @@ public class Camera2VideoFragment extends Fragment
                             // Start recording
                             mMediaRecorder.start();
                             mTimer.start();
-//                            mTimeUp = false;
                             mAnimatior = ObjectAnimator.ofInt(mProgress,"progress",0,100);
-                            mAnimatior = ObjectAnimator.ofInt(mProgress,"progress",0,100);
+//                            mAnimatior = ObjectAnimator.ofInt(mProgress,"progress",0,100);
                             mAnimatior.setDuration(VIDEO_DURATION);
                             mAnimatior.start();
                             mSwitchCamera.setClickable(false);
+                            mIsReady2Send = false;
                         }
                     });
                 }
@@ -858,6 +863,14 @@ public class Camera2VideoFragment extends Fragment
     private void stopRecordingVideo() {
         // UI
         mIsRecordingVideo = false;
+
+//        try {
+//            mPreviewSession.stopRepeating();
+//            mPreviewSession.abortCaptures();
+//        }catch (CameraAccessException e){
+//            Log.e(TAG,e.getMessage());
+//        }
+
         // Stop recording
         try {
             mMediaRecorder.stop();
@@ -1282,7 +1295,7 @@ public class Camera2VideoFragment extends Fragment
             Size largest = Collections.max(
                     Arrays.asList(map.getOutputSizes(ImageFormat.JPEG)),
                     new CompareSizesByArea());
-            mVideoSize  = chooseVideoSize(map.getOutputSizes(MediaRecorder.class));
+
             mImageReader = ImageReader.newInstance(largest.getWidth(), largest.getHeight(),
                     ImageFormat.JPEG, /*maxImages*/1);
             mImageReader.setOnImageAvailableListener(
@@ -1333,6 +1346,7 @@ public class Camera2VideoFragment extends Fragment
                 maxPreviewHeight = MAX_PREVIEW_HEIGHT;
             }
 
+            mVideoSize  = chooseVideoSize(map.getOutputSizes(MediaRecorder.class));
             // Danger, W.R.! Attempting to use too large a preview size could  exceed the camera
             // bus' bandwidth limitation, resulting in gorgeous previews but the storage of
             // garbage capture data.
