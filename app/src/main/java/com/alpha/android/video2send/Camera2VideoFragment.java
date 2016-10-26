@@ -1,19 +1,16 @@
 package com.alpha.android.video2send;
 
-import android.Manifest;
 import android.animation.Animator;
 import android.animation.ObjectAnimator;
 import android.animation.PropertyValuesHolder;
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.app.Dialog;
-import android.app.DialogFragment;
 import android.app.Fragment;
 import android.app.FragmentManager;
 import android.app.FragmentTransaction;
+import android.content.ComponentName;
 import android.content.Context;
-import android.content.DialogInterface;
-import android.content.pm.PackageManager;
+import android.content.Intent;
+import android.content.ServiceConnection;
 import android.content.res.Configuration;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
@@ -30,23 +27,17 @@ import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CaptureResult;
 import android.hardware.camera2.TotalCaptureResult;
 import android.hardware.camera2.params.StreamConfigurationMap;
-import android.location.Location;
-import android.location.LocationListener;
-import android.location.LocationManager;
-import android.media.CamcorderProfile;
 import android.media.Image;
 import android.media.ImageReader;
 import android.media.MediaRecorder;
-import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.CountDownTimer;
 import android.os.Handler;
 import android.os.HandlerThread;
-import android.provider.Settings;
+import android.os.IBinder;
 import android.support.annotation.NonNull;
 import android.support.design.widget.FloatingActionButton;
 import android.support.v13.app.FragmentCompat;
-import android.support.v4.app.ActivityCompat;
 import android.support.v7.widget.ContentFrameLayout;
 import android.util.Log;
 import android.util.Size;
@@ -66,38 +57,27 @@ import android.widget.ImageButton;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
-import java.io.DataOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.net.HttpURLConnection;
-import java.net.MalformedURLException;
-import java.net.URL;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 public class Camera2VideoFragment extends Fragment
-        implements View.OnClickListener, FragmentCompat.OnRequestPermissionsResultCallback, LocationListener {
+        implements View.OnClickListener {
 
     private static final int SENSOR_ORIENTATION_DEFAULT_DEGREES = 90;
     private static final int SENSOR_ORIENTATION_INVERSE_DEGREES = 270;
     private static final SparseIntArray DEFAULT_ORIENTATIONS = new SparseIntArray();
     private static final SparseIntArray INVERSE_ORIENTATIONS = new SparseIntArray();
-    private static final String UPLOAD_URL = "http://api.playgroundz.tv/api/video/appupload";
 
     private static final String TAG = "Camera2VideoFragment";
-    private static final int REQUEST_VIDEO_PERMISSIONS = 1;
-    private static final int REQUEST_GPS_PERMISSIONS = 2;
-    private static final int  REQUEST_PERMISSIONS_CODE =3;
-    private static final String FRAGMENT_DIALOG = "dialog";
     private static final int VIDEO_DURATION = 10 * 1000; // 10s
     private static final int FACING_CAMERA = 1;
     private static final int BACK_CAMERA = 0;
@@ -108,16 +88,6 @@ public class Camera2VideoFragment extends Fragment
     static final int PRE_DURATION_MS = 350;
 
     private static final int BEST_VIDEO_SIZE = 720;
-
-    private static final String[] VIDEO_PERMISSIONS = {
-            Manifest.permission.CAMERA,
-            Manifest.permission.RECORD_AUDIO,
-    };
-
-    private static final String[] LOCATION_PERMISSIONS = {
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-    };
 
     static {
         DEFAULT_ORIENTATIONS.append(Surface.ROTATION_0, 90);
@@ -163,8 +133,6 @@ public class Camera2VideoFragment extends Fragment
     private Animator mCircleAnimator;
     private String mCurrentCameraId = "0";
     private List<String> mCameraIdList;
-    private String mFacingCameraId;
-    private String mBackCameraId;
     private ImageReader mImageReader;
     private boolean mFlashSupported;
     private File mImageFile;
@@ -191,10 +159,8 @@ public class Camera2VideoFragment extends Fragment
     private Semaphore mCameraOpenCloseLock = new Semaphore(1);
     private boolean mLongPressed;
 
-    LocationManager mLm;
-    double mLongitude;
-    double mLatitude;
-    double mLocAccuracy;
+    UploadingService mService;
+    boolean mBound = false;
 
     private ImageReader.OnImageAvailableListener mOnImageAvailableListener = new ImageReader.OnImageAvailableListener() {
         @Override
@@ -214,9 +180,6 @@ public class Camera2VideoFragment extends Fragment
 
         }
     };
-
-    private LinkedList<String> mVideoQueue;
-
     private TextureView.SurfaceTextureListener mSurfaceTextureListener
             = new TextureView.SurfaceTextureListener() {
 
@@ -266,10 +229,6 @@ public class Camera2VideoFragment extends Fragment
             mCameraOpenCloseLock.release();
             cameraDevice.close();
             mCameraDevice = null;
-//            Activity activity = getActivity();
-//            if (null != activity) {
-//                activity.finish();
-//            }
         }
 
     };
@@ -358,10 +317,16 @@ public class Camera2VideoFragment extends Fragment
     }
 
     @Override
+    public void onStop() {
+        super.onStop();
+    }
+
+    @Override
     public void onActivityCreated(Bundle savedInstanceState) {
         super.onActivityCreated(savedInstanceState);
         mImageFile = new File(getImageFilePath(getActivity()));
-        mVideoQueue = new LinkedList<String>();
+        Intent intent = new Intent(getActivity(), UploadingService.class);
+        getActivity().bindService(intent, mConnection, Context.BIND_AUTO_CREATE);
     }
 
     @Override
@@ -479,12 +444,6 @@ public class Camera2VideoFragment extends Fragment
         });
         mLongPressed = false;
 
-        if(!hasPermissionsGranted(LOCATION_PERMISSIONS)){
-            requestPermissions(LOCATION_PERMISSIONS);
-            return;
-        }
-        mLm = (LocationManager) getActivity().getSystemService(Context.LOCATION_SERVICE);
-        mLm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000, 10, this);
     }
 
     @Override
@@ -498,9 +457,9 @@ public class Camera2VideoFragment extends Fragment
             mTextureView.setSurfaceTextureListener(mSurfaceTextureListener);
         }
 
-        if(mVideoQueue.size() != 0){
-            new UploadVideoTask().execute(mVideoQueue.getFirst(),null,null);
-        }
+//        if(mVideoQueue.size() != 0){
+//            new UploadVideoTask().execute(mVideoQueue.getFirst(),null,null);
+//        }
     }
 
     @Override
@@ -508,6 +467,10 @@ public class Camera2VideoFragment extends Fragment
         Log.d(TAG,"onPause");
         closeCamera();
         stopBackgroundThread();
+        if(mBound){
+            getActivity().unbindService(mConnection);
+            mBound = false;
+        }
         super.onPause();
     }
 
@@ -549,48 +512,49 @@ public class Camera2VideoFragment extends Fragment
         return false;
     }
 
-    /**
-     * Requests permissions needed for recording video.
-     */
-    private void requestPermissions(String[] permissions) {
-        if (shouldShowRequestPermissionRationale(permissions)) {
-            new ConfirmationDialog().show(getChildFragmentManager(), FRAGMENT_DIALOG);
-        } else {
-            FragmentCompat.requestPermissions(this, permissions, REQUEST_PERMISSIONS_CODE);
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
-                                           @NonNull int[] grantResults) {
-//        Log.d(TAG, "onRequestPermissionsResult permissions = " + permissions[0]);
-        if (requestCode == REQUEST_PERMISSIONS_CODE) {
-            if (grantResults.length == permissions.length) {
-                for (int result : grantResults) {
-                    if (result != PackageManager.PERMISSION_GRANTED) {
-                        ErrorDialog.newInstance(getString(R.string.request_permission))
-                                .show(getChildFragmentManager(), FRAGMENT_DIALOG);
-                        break;
-                    }
-                }
-            } else {
-                ErrorDialog.newInstance(getString(R.string.request_permission))
-                        .show(getChildFragmentManager(), FRAGMENT_DIALOG);
-            }
-        } else {
-            super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        }
-    }
-
-    private boolean hasPermissionsGranted(String[] permissions) {
-        for (String permission : permissions) {
-            if (ActivityCompat.checkSelfPermission(getActivity(), permission)
-                    != PackageManager.PERMISSION_GRANTED) {
-                return false;
-            }
-        }
-        return true;
-    }
+//    /**
+//     * Requests permissions needed for recording video.
+//     */
+//    private void requestPermissions(String[] permissions) {
+//        if (shouldShowRequestPermissionRationale(permissions)) {
+//            new .ConfirmationDialog().show(getChildFragmentManager(), FRAGMENT_DIALOG);
+//        } else {
+//            FragmentCompat.requestPermissions(this, permissions, REQUEST_PERMISSIONS_CODE);
+//        }
+//    }
+//
+//    @Override
+//    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+//                                           @NonNull int[] grantResults) {
+////        Log.d(TAG, "onRequestPermissionsResult permissions = " + permissions[0]);
+//        if (requestCode == REQUEST_PERMISSIONS_CODE) {
+//            if (grantResults.length == permissions.length) {
+//                for (int result : grantResults) {
+//                    if (result != PackageManager.PERMISSION_GRANTED) {
+//                        ErrorDialog.newInstance(getString(R.string.request_permission))
+//                                .show(getChildFragmentManager(), FRAGMENT_DIALOG);
+////                        ErrorDialog().show(getChildFragmentManager(), FRAGMENT_DIALOG);
+//                        break;
+//                    }
+//                }
+//            } else {
+//                ErrorDialog.newInstance(getString(R.string.request_permission))
+//                        .show(getChildFragmentManager(), FRAGMENT_DIALOG);
+//            }
+//        } else {
+//            super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+//        }
+//    }
+//
+//    private boolean hasPermissionsGranted(String[] permissions) {
+//        for (String permission : permissions) {
+//            if (ActivityCompat.checkSelfPermission(getActivity(), permission)
+//                    != PackageManager.PERMISSION_GRANTED) {
+//                return false;
+//            }
+//        }
+//        return true;
+//    }
 
 
     /**
@@ -598,10 +562,10 @@ public class Camera2VideoFragment extends Fragment
      */
     private void openCamera(int width, int height,String cameraId) {
         Log.d(TAG,"openCamera");
-        if (!hasPermissionsGranted(VIDEO_PERMISSIONS)) {
-            requestPermissions(VIDEO_PERMISSIONS);
-            return;
-        }
+//        if (!hasPermissionsGranted(VIDEO_PERMISSIONS)) {
+//            requestPermissions(VIDEO_PERMISSIONS);
+//            return;
+//        }
         final Activity activity = getActivity();
         if (null == activity || activity.isFinishing()) {
             return;
@@ -622,8 +586,9 @@ public class Camera2VideoFragment extends Fragment
         } catch (NullPointerException e) {
             // Currently an NPE is thrown when the Camera2API is used but not supported on the
             // device this code runs.
-            ErrorDialog.newInstance(getString(R.string.camera_error))
-                    .show(getChildFragmentManager(), FRAGMENT_DIALOG);
+            showToast(getString(R.string.camera_error));
+//            CameraActivity.ErrorDialog.newInstance(getString(R.string.camera_error))
+//                    .show(getChildFragmentManager(), FRAGMENT_DIALOG);
         } catch (InterruptedException e) {
             throw new RuntimeException("Interrupted while trying to lock camera opening.");
         }
@@ -885,13 +850,6 @@ public class Camera2VideoFragment extends Fragment
 
         mSwitchCamera.setClickable(true);
 
-//        showToast(mNextVideoAbsolutePath);
-
-        synchronized (mVideoQueue){
-            mVideoQueue.add(mNextVideoAbsolutePath);
-            mNextVideoAbsolutePath = null;
-        }
-
         mProgress.setVisibility(View.INVISIBLE);
         mProgress.setProgress(0);
         mControl.setVisibility(View.INVISIBLE);
@@ -922,11 +880,9 @@ public class Camera2VideoFragment extends Fragment
                 if(mAnimatior != null && mAnimatior.isRunning())
                     mAnimatior.cancel();
                 mTimer.cancel();
-//                closeCamera();
                 getActivity().finish();
             break;
             case R.id.switch_camera:
-//                closeCamera();
                 if (null != mCameraDevice) {
                     mCameraDevice.close();
                     mCameraDevice = null;
@@ -946,15 +902,9 @@ public class Camera2VideoFragment extends Fragment
                     mIsReady2Send = true;
                 }else {
                     // FIX ME ready to send;
+                    mService.uploadNextVideo(mNextVideoAbsolutePath);
+                    mNextVideoAbsolutePath = null;
                     resetToReadyRecording();
-                    String uploadFilename;
-                    synchronized (mVideoQueue) {
-                        uploadFilename = mVideoQueue.size() != 0 ? mVideoQueue.getFirst(): null;
-                    }
-                    Log.d(TAG,"upload video uploadFilename = "+ uploadFilename);
-                    if(uploadFilename != null) {
-                        new UploadVideoTask().execute(uploadFilename,null,null);
-                    }
                 }
             break;
             case R.id.close:
@@ -972,60 +922,6 @@ public class Camera2VideoFragment extends Fragment
             // We cast here to ensure the multiplications won't overflow
             return Long.signum((long) lhs.getWidth() * lhs.getHeight() -
                     (long) rhs.getWidth() * rhs.getHeight());
-        }
-
-    }
-
-    public static class ErrorDialog extends DialogFragment {
-
-        private static final String ARG_MESSAGE = "message";
-
-        public static ErrorDialog newInstance(String message) {
-            ErrorDialog dialog = new ErrorDialog();
-            Bundle args = new Bundle();
-            args.putString(ARG_MESSAGE, message);
-            dialog.setArguments(args);
-            return dialog;
-        }
-
-        @Override
-        public Dialog onCreateDialog(Bundle savedInstanceState) {
-            final Activity activity = getActivity();
-            return new AlertDialog.Builder(activity)
-                    .setMessage(getArguments().getString(ARG_MESSAGE))
-                    .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
-                        @Override
-                        public void onClick(DialogInterface dialogInterface, int i) {
-                            activity.finish();
-                        }
-                    })
-                    .create();
-        }
-
-    }
-
-    public static class ConfirmationDialog extends DialogFragment {
-
-        @Override
-        public Dialog onCreateDialog(Bundle savedInstanceState) {
-            final Fragment parent = getParentFragment();
-            return new AlertDialog.Builder(getActivity())
-                    .setMessage(R.string.request_permission)
-                    .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
-                        @Override
-                        public void onClick(DialogInterface dialog, int which) {
-                            FragmentCompat.requestPermissions(parent, VIDEO_PERMISSIONS,
-                                    REQUEST_VIDEO_PERMISSIONS);
-                        }
-                    })
-                    .setNegativeButton(android.R.string.cancel,
-                            new DialogInterface.OnClickListener() {
-                                @Override
-                                public void onClick(DialogInterface dialog, int which) {
-                                    parent.getActivity().finish();
-                                }
-                            })
-                    .create();
         }
 
     }
@@ -1373,8 +1269,9 @@ public class Camera2VideoFragment extends Fragment
         } catch (NullPointerException e) {
             // Currently an NPE is thrown when the Camera2API is used but not supported on the
             // device this code runs.
-            ErrorDialog.newInstance(getString(R.string.camera_error))
-                    .show(getChildFragmentManager(), FRAGMENT_DIALOG);
+            showToast(getString(R.string.camera_error));
+//            CameraActivity.ErrorDialog.newInstance(getString(R.string.camera_error))
+//                    .show(getChildFragmentManager(), FRAGMENT_DIALOG);
         }
     }
 
@@ -1385,124 +1282,17 @@ public class Camera2VideoFragment extends Fragment
         }
     }
 
-    private class UploadVideoTask extends AsyncTask<String,Void,Void>{
-        HttpURLConnection mConn;
-        DataOutputStream mDos;
-        int bytesRead, bytesAvailable, bufferSize;
-        byte[] buffer;
-        int maxBufferSize = 1 * 1024 * 1024;
-        String lineEnd = "\r\n";
-        String twoHyphens = "--";
-        String boundary = "*****";
-        private int serverResponseCode = 0;
-        String androidId;
-
+    private ServiceConnection mConnection = new ServiceConnection() {
         @Override
-        protected Void doInBackground(String... params) {
-            try {
-                String videoFile  =  params[0];
-                Log.d(TAG,"doInBackground file = "+ params[0]);
-                FileInputStream fileInputStream = new FileInputStream(new File(videoFile));
-                URL url = new URL(UPLOAD_URL);
-                mConn = (HttpURLConnection)url.openConnection();
-                mConn.setDoInput(true); // Allow Inputs
-                mConn.setDoOutput(true); // Allow Outputs
-                mConn.setUseCaches(false); // Don't use a Cached Copy
-                mConn.setRequestMethod("POST");
-                mConn.setRequestProperty("Connection", "Keep-Alive");
-                mConn.setRequestProperty("ENCTYPE", "multipart/form-data");
-                mConn.setRequestProperty("Content-Type", "multipart/form-data;boundary=" + boundary);
-                mConn.setRequestProperty("file", videoFile);
-                mConn.setRequestProperty("account","test");
-                mConn.setRequestProperty("email","alphalilin@gmail.com");
-                mConn.setRequestProperty("androidid",androidId);
-                mConn.setRequestProperty("lat",String.valueOf(mLatitude));
-                mConn.setRequestProperty("long",String.valueOf(mLongitude));
-                mConn.setRequestProperty("accuracy",String.valueOf(mLocAccuracy));
-
-
-                mDos = new DataOutputStream(mConn.getOutputStream());
-
-                mDos.writeBytes(twoHyphens + boundary + lineEnd);
-                mDos.writeBytes("Content-Disposition: form-data; name=\"bill\";filename=\""
-                        + videoFile + "\"" + lineEnd);
-
-                mDos.writeBytes(lineEnd);
-
-                // create a buffer of maximum size
-                bytesAvailable = fileInputStream.available();
-
-                bufferSize = Math.min(bytesAvailable, maxBufferSize);
-                buffer = new byte[bufferSize];
-
-                // read file and write it into form...
-                bytesRead = fileInputStream.read(buffer, 0, bufferSize);
-
-                while (bytesRead > 0) {
-
-                    mDos.write(buffer, 0, bufferSize);
-                    bytesAvailable = fileInputStream.available();
-                    bufferSize = Math
-                            .min(bytesAvailable, maxBufferSize);
-                    bytesRead = fileInputStream.read(buffer, 0,
-                            bufferSize);
-
-                }
-
-                // send multipart form data necesssary after file
-                // data...
-                mDos.writeBytes(lineEnd);
-                mDos.writeBytes(twoHyphens + boundary + twoHyphens
-                        + lineEnd);
-                serverResponseCode = mConn.getResponseCode();
-                String serverResponseMessage = mConn.getResponseMessage();
-                Log.i(TAG, "HTTP Response is : " + serverResponseMessage + ": " + serverResponseCode);
-                if (serverResponseCode == 200) {
-                    //FIX ME  delete the file
-                    showToast("Upload Finished");
-                }
-
-                // close the streams //
-                fileInputStream.close();
-                mDos.flush();
-                mDos.close();
-
-
-            }catch (IOException ioe){
-                Log.e(TAG,ioe.getMessage());
-            }
-            return null;
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            UploadingService.LocalBinder binder = (UploadingService.LocalBinder)service;
+            mService = binder.getService();
+            mBound = true;
         }
 
         @Override
-        protected void onPreExecute() {
-            androidId = Settings.System.getString(getActivity().getContentResolver(), Settings.System.ANDROID_ID);
-            Log.d(TAG,"androidId = " + androidId);
+        public void onServiceDisconnected(ComponentName name) {
+            mBound = false;
         }
-
-    }
-
-
-    @Override
-    public void onLocationChanged(Location location) {
-        Log.d(TAG,"lat = " + location.getLatitude() + " long = "+ location.getLongitude() + " accuracy = " + location.getAccuracy());
-        mLatitude = location.getLatitude();
-        mLongitude = location.getLongitude();
-        mLocAccuracy = location.getAccuracy();
-    }
-
-    @Override
-    public void onStatusChanged(String provider, int status, Bundle extras) {
-
-    }
-
-    @Override
-    public void onProviderEnabled(String provider) {
-
-    }
-
-    @Override
-    public void onProviderDisabled(String provider) {
-
-    }
+    };
 }
