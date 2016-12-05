@@ -63,13 +63,16 @@ public class UploadingService extends Service implements  LocationListener{
             }
         }
     };
-
     Location mLocation;
     Account mGoogleAccount;
+    boolean mIsRunning;
 
-
-    public void setLocation(Location location){
-        mLocation = location;
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+//        return super.onStartCommand(intent, flags, startId);
+        Log.d(TAG,"onStartCommand");
+        mIsRunning = true;
+        return START_STICKY;
     }
 
     @Override
@@ -107,6 +110,13 @@ public class UploadingService extends Service implements  LocationListener{
         mLocation = mLm.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER);
         Message msg = mHandler.obtainMessage(MSG_GET_ACCOUNT);
         mHandler.sendMessage(msg);
+    }
+
+    @Override
+    public void onDestroy() {
+        Log.d(TAG,"onDestroy");
+        super.onDestroy();
+        mIsRunning = false;
     }
 
     public void uploadNextVideo(String uploadFile){

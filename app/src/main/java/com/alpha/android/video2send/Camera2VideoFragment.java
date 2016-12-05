@@ -902,6 +902,9 @@ public class Camera2VideoFragment extends Fragment
                     mIsReady2Send = true;
                 }else {
                     // FIX ME ready to send;
+                    if(!mService.mIsRunning) {
+                        getActivity().startService(new Intent(getActivity().getBaseContext(), UploadingService.class));
+                    }
                     mService.uploadNextVideo(mNextVideoAbsolutePath);
                     mNextVideoAbsolutePath = null;
                     resetToReadyRecording();
